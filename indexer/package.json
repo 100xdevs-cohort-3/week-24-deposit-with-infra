@@ -1,16 +1,25 @@
 {
-  "name": "indexer",
-  "version": "1.0.0",
-  "main": "index.js",
-  "scripts": {
-    "dev": "tsc -b && node dist/index.js"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "description": "",
-  "dependencies": {
-    "axios": "^1.7.9",
-    "typescript": "^5.7.3"
+    "name": "indexer",
+    "version": "1.0.0",
+    "main": "index.js",
+    "scripts": {
+      "dev": "nodemon src/index.ts"
+    },
+    "keywords": [],
+    "author": "",
+    "license": "ISC",
+    "type": "commonjs",
+    "description": "",
+    "devDependencies": {
+      "@types/pg": "^8.11.11",
+      "nodemon": "^3.1.9",
+      "ts-node": "^10.9.2",
+      "typescript": "^5.7.3"
+    },
+    "dependencies": {
+      "dotenv": "^16.4.7",
+      "ethers": "^6.13.5",
+      "pg": "^8.13.1"
+    }
   }
-}
+  
