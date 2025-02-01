@@ -1,45 +1,137 @@
-import express from "express";
-import { HDNodeWallet } from "ethers6";
+import express, {Request, Response} from "express";
+import { ethers, HDNodeWallet } from "ethers6";
+import {config} from "./config";
+import { PrismaClient } from "@prisma/client";
+import jwt from "jsonwebtoken"
 import { mnemonicToSeedSync } from "bip39";
-import { MNUENOMICS } from "./config";
 import cors from "cors";
-import { Client } from "pg";
+import { auth } from "./auth";
 
-const client = new Client("postgres://postgres:mysecretpassword@localhost:5432/mynewdb");
-client.connect();
-
-const seed = mnemonicToSeedSync(MNUENOMICS);
-
-const app = express();
-app.use(express.json());
-
+const prisma=new PrismaClient();
+const seed=mnemonicToSeedSync(config.MNEMONICS);
+const app=express();
+app.use(express.json())
 app.use(cors());
 
-app.post("/signup", async (req, res) => {
-    const username = req.body.username;
-    const password = req.body.password;
+app.post("/signup", async(req, res)=>{
+    const username=req.body.username;
+    const password=req.body.password;   
+    const result=await prisma.binanceUsers.create({
+        data:{
+            username,
+            password,
+            depositAddress:"",
+            privateKey:"",
+            balance: 0,
+        }
+    })
+    const userId=result.id;
+    const hdNode=HDNodeWallet.fromSeed(seed);
+    const derivationPath=`m/44'/60'/${userId}'/0`;
+    const child=hdNode.derivePath(derivationPath);
 
-    const result = await client.query('INSERT INTO binanceUsers (username, password, depositAddress, privateKey, balance) VALUES ($1, $2, $3, $4, $5) RETURNING id', [username, password, "", "", 0]);
-
-    const userId = result.rows[0].id;
-    
-    const hdNode = HDNodeWallet.fromSeed(seed);
-    const derivationPath = `m/44'/60'/${userId}'/0`;
-    const child = hdNode.derivePath(derivationPath);
-    console.log(derivationPath);
-
-    await client.query('UPDATE binanceUsers SET depositAddress=$1, privateKey=$2 WHERE id=$3', [child.address, child.privateKey, userId]);
+    await prisma.binanceUsers.update({
+        where:{ id: userId},
+        data:{
+            depositAddress: child.address.toLowerCase(),
+            privateKey: child.privateKey,
+        }
+    })
 
     console.log(child.address);
     console.log(child.privateKey);
+
     console.log(child);
     res.json({
-        userId
+        userId: userId
     })
 })
 
-app.get("/depositAddress/:userId", (req, res) => {
+app.post("/signin", async(req, res)=>{
+    const {username, password}=req.body;
+    const user=await prisma.binanceUsers.findFirst({where: {username, password}})
+    if(!user){
+        res.json({
+            message: "No such user"
+        })
+        return;
+    }
+    const token=jwt.sign({userId: user.id}, config.SECRET_KEY);
+    res.json({
+        token: token
+    })
     
 })
 
-app.listen(3000);
+app.get("/depositAddress/:userId", async(req, res)=>{
+    const userId=req.params.userId;
+    const user=await prisma.binanceUsers.findUnique({
+        where:{id: Number(userId)}
+    })
+    if(!user){
+        res.json({
+            message: "User not found"
+        })
+        return;
+    }
+    res.json({
+        depositAddress: user.depositAddress
+    })
+})
+
+app.post("/withdrawAddress", auth, async(req, res)=>{
+    const {amount, toAddress, userId}= req.body;
+    const user=await prisma.binanceUsers.findFirst({
+        where:{id: userId}
+    })
+    if(!user){
+        res.json({message:"No user found"});
+        return;
+    }
+    //@ts-ignore
+    if(amount>user.balance){
+        res.json({message: "Insufficient Balance"});
+        return;
+    }
+    (async()=>{
+        const provider=new ethers.JsonRpcProvider(config.RPC_URL);
+        const signer=new ethers.Wallet(config.HOT_WALLET_PRIVATE, provider);
+        const txn=await signer.sendTransaction({
+            to: toAddress,
+            value: ethers.parseUnits(amount.toString(), 'ether')
+        })
+        if(!txn){
+            console.log("Issue with transaction");
+            return;
+        }
+
+        //storing details of successful transaction in new withdrawal model
+        await prisma.withdrawalHotWallet.create({
+            data:{
+                id: userId,
+                value: amount,
+                withdrawalFromAddres: signer.address,
+                userToAddress: toAddress,
+                TransactionHash: txn.hash
+            }
+        })
+
+        //updating original binance user model's balance
+        await prisma.binanceUsers.update({
+            where: {id: userId},
+            data:{
+                balance: {
+                    decrement: amount
+                }
+            }
+        })
+
+        res.json({
+            message: "Withdrawn Successfully",
+            "transaction hash" : txn.hash,
+            "Amount Withdrawed": amount
+        })
+    })();
+})
+
+app.listen(config.PORT)
