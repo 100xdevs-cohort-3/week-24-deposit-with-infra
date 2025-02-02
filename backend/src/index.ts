@@ -6,11 +6,13 @@ import jwt from "jsonwebtoken"
 import { mnemonicToSeedSync } from "bip39";
 import cors from "cors";
 import { auth } from "./auth";
+import Cryptr from "cryptr";
 
 const prisma=new PrismaClient();
+const cryptr= new Cryptr(config.ENCRYPT_SECRET_KEY);
 const seed=mnemonicToSeedSync(config.MNEMONICS);
 const app=express();
-app.use(express.json())
+app.use(express.json());
 app.use(cors());
 
 app.post("/signup", async(req, res)=>{
@@ -34,7 +36,7 @@ app.post("/signup", async(req, res)=>{
         where:{ id: userId},
         data:{
             depositAddress: child.address.toLowerCase(),
-            privateKey: child.privateKey,
+            privateKey: cryptr.encrypt(child.privateKey),
         }
     })
 
