@@ -1,0 +1,27 @@
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model binanceUsers{
+  id              Int      @id @default(autoincrement())
+  username        String      
+  password        String
+  depositAddress  String   @unique     
+  privateKey      String      
+  balance         Float
+}
+
+model withdrawalHotWallet{ //can implement relation  "id"
+  id                      Int                @id @default(autoincrement())
+  value                   Float
+  withdrawalFromAddres    String             
+  userToAddress           String             
+  TransactionHash         String             @unique
+  timestamp               DateTime           @default(now())
+}
